@@ -21,7 +21,7 @@ xattr -dr com.apple.quarantine /Applications/loopmm.app
 
 ## How it works
 
-It is an Electron app. The page is the same one as the [playground Space](https://huggingface.co/spaces/MostLime/loopmm-playground). The model runs as int8 ONNX graphs on onnxruntime-web (WebAssembly, with threads). The model files come from the Hugging Face repos at the revisions pinned in `release.json`. The source of the page and of the model export is in the loopmm project.
+It is an Electron app. The page is the same one as the [playground Space](https://huggingface.co/spaces/MostLime/loopmm-playground). The model runs as ONNX graphs (fp16 weights) on onnxruntime-web (WebAssembly, with threads). The model files come from the Hugging Face repos at the revisions pinned in `release.json`. The source of the page and of the model export is in the loopmm project.
 
 ## Build
 

@@ -1,20 +1,32 @@
 {
  "params": "189M-parameter",
- "app_version": "0.1.0",
+ "app_version": "0.1.1",
  "models": [
   {
    "id": "chat",
    "label": "Chat",
    "repo": "MostLime/loopmm-chat",
    "rev": "",
-   "mode": "chat"
+   "mode": "chat",
+   "defaults": {
+    "temperature": 0.2,
+    "topP": 0.9,
+    "repPenalty": 1.0,
+    "detail": 576
+   }
   },
   {
    "id": "base",
    "label": "Base (pretrained only)",
    "repo": "MostLime/loopmm-base",
-   "rev": "029807d250f7d4458ab4d9d7fb22baaa92ceaffd",
-   "mode": "complete"
+   "rev": "de7d56b3820b30f61f4f6a9ded03513a6ade5f6d",
+   "mode": "complete",
+   "defaults": {
+    "temperature": 0.7,
+    "topP": 0.9,
+    "repPenalty": 1.1,
+    "detail": 256
+   }
   }
  ]
 }

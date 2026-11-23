@@ -6,8 +6,14 @@ window.LOOPMM = {
   "id": "base",
   "label": "Base (pretrained only)",
   "repo": "MostLime/loopmm-base",
-  "rev": "029807d250f7d4458ab4d9d7fb22baaa92ceaffd",
-  "mode": "complete"
+  "rev": "de7d56b3820b30f61f4f6a9ded03513a6ade5f6d",
+  "mode": "complete",
+  "defaults": {
+   "temperature": 0.7,
+   "topP": 0.9,
+   "repPenalty": 1.1,
+   "detail": 256
+  }
  }
 ],
   fileUrl: (m, f) => new URL(`models/${m.id}/${f}`, location.href).href,

@@ -19,7 +19,7 @@ for (const [id, key, fmt] of [['loops', 'loops', (v) => v], ['temp', 'temperatur
   const upd = () => { S[key] = +el.value; out.textContent = fmt(el.value); store.set('loopmm.' + id, el.value); };
   el.addEventListener('input', upd); upd();
 }
-$('detail').value = store.get('loopmm.detail') || '256';
+$('detail').value = store.get('loopmm.detail') || '576';
 $('detail').addEventListener('change', () => store.set('loopmm.detail', $('detail').value));
 $('menu').onclick = () => $('app').classList.toggle('open');
 $('log').addEventListener('click', () => $('app').classList.remove('open'));
@@ -74,6 +74,11 @@ async function loadModel(m) {
   }
   setBar(null); setStatus('Starting…');
   engine = await Engine.load(ort, bufs, meta);
+  // per-model defaults (the chat model wants a low temperature and no repetition penalty)
+  const dft = { ...(m.defaults || {}), ...(chatCfg?.defaults || {}) };
+  for (const [id, key] of [['temp', 'temperature'], ['topp', 'topP'], ['rep', 'repPenalty']])
+    if (dft[key] != null) { $(id).value = dft[key]; $(id).dispatchEvent(new Event('input')); }
+  if (dft.detail) $('detail').value = String(dft.detail);
   // thinking modes
   const modes = chatCfg?.thinking_modes || [];
   $('thinkfield').hidden = !modes.length;
@@ -160,6 +165,15 @@ async function feedFlat(F, from, onProgress) {
 
 // ---------------------------------------------------------------- rendering
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+// minimal markdown for replies: code blocks, inline code, bold, italics (input is escaped first)
+function md(s) {
+  const parts = s.split(/```/);
+  return parts.map((p, i) => {
+    if (i % 2) return `<pre><code>${esc(p.replace(/^[\w+-]*\n/, ''))}</code></pre>`;
+    return esc(p).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>');
+  }).join('');
+}
 function renderEmpty() {
   const e = $('empty'); if (!e) return;
   e.innerHTML = model?.mode === 'chat'
@@ -198,9 +212,9 @@ function renderMsg(m, live = false) {
   let h = '';
   if (think != null && think.length) {
     const wasOpen = el.querySelector('details')?.open;
-    h += `<details${open || wasOpen ? ' open' : ''}><summary>${open ? 'Thinking…' : 'Thinking'}</summary>${esc(think)}</details>`;
+    h += `<details${open || wasOpen ? ' open' : ''}><summary>${open ? 'Thinking…' : `Thought for ${think.split(/\s+/).length} words`}</summary>${esc(think)}</details>`;
   }
-  h += `<span class="${live && !open ? 'cursor' : ''}">${esc(answer)}</span>`;
+  h += `<span class="${live && !open ? 'cursor' : ''}">${model?.mode === 'chat' ? md(answer) : esc(answer)}</span>`;
   if (m.stats) h += `<div class="stats">${m.stats}</div>`;
   el.innerHTML = h;
 }
