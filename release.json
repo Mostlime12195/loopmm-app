@@ -13,7 +13,7 @@
    "id": "base",
    "label": "Base (pretrained only)",
    "repo": "MostLime/loopmm-base",
-   "rev": "",
+   "rev": "029807d250f7d4458ab4d9d7fb22baaa92ceaffd",
    "mode": "complete"
   }
  ]
