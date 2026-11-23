@@ -1,0 +1,20 @@
+{
+ "params": "189M-parameter",
+ "app_version": "0.1.0",
+ "models": [
+  {
+   "id": "chat",
+   "label": "Chat",
+   "repo": "MostLime/loopmm-chat",
+   "rev": "",
+   "mode": "chat"
+  },
+  {
+   "id": "base",
+   "label": "Base (pretrained only)",
+   "repo": "MostLime/loopmm-base",
+   "rev": "",
+   "mode": "complete"
+  }
+ ]
+}
