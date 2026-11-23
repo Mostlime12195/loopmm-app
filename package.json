@@ -1,7 +1,7 @@
 {
   "name": "loopmm",
   "productName": "loopmm",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Try loopmm, a small looped multimodal model, offline on your Mac.",
   "main": "main.js",
   "license": "Apache-2.0",

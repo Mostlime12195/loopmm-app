@@ -14,9 +14,10 @@ xattr -dr com.apple.quarantine /Applications/loopmm.app
 
 ## Use
 
-- Type a message, or add images with the + button, by pasting, or by dropping them on the window.
-- **Model**: for now only the base model, which continues the text that you write. It does not follow instructions yet. A post-trained chat version is pending; the app already has a chat mode (with a thinking box) for it.
+- Write in the canvas. The model suggests how your text continues, in grey. Press Tab to take the next word, or the right arrow key to take all of it. Keep typing to ignore it, or press Esc to hide it.
+- Add images above the text with the + image button, by pasting, or by dropping them on the window. The model reads them before the text.
 - **Loops**: how many times the model runs its 12 middle layers for each token. It was trained with 3. Fewer loops are faster.
+- This is the pretrained base model, so it continues text and does not follow instructions. A post-trained chat version is pending; the app already has a chat mode for it.
 
 ## How it works
 

@@ -32,8 +32,12 @@
     <label class="field">Repetition penalty <output id="repv">1.1</output>
       <input id="rep" type="range" min="1" max="1.5" step="0.05" value="1.1">
     </label>
-    <label class="field">Max new tokens <output id="maxv">512</output>
+    <label class="field" id="maxfield">Max new tokens <output id="maxv">512</output>
       <input id="max" type="range" min="32" max="2048" step="32" value="512">
+    </label>
+    <label class="field" id="lenfield" hidden>Suggestion length <output id="lenv">16</output>
+      <input id="len" type="range" min="4" max="64" step="2" value="16">
+      <small>Tokens of grey text after the end of your text.</small>
     </label>
     <label class="field">Image detail
       <select id="detail"><option value="64">Low (64 tokens)</option><option value="256">Medium (256)</option><option value="576" selected>High (576)</option></select>
@@ -43,6 +47,17 @@
   </aside>
   <main>
     <header><button id="menu" class="btn icon" aria-label="Settings">☰</button><span id="status">Loading…</span><div id="bar" hidden><div></div></div></header>
+    <section id="canvas" hidden>
+      <div id="cimgs"><label class="addimg" title="Add an image. It goes before the text.">＋ image<input id="cfile" type="file" accept="image/*" multiple hidden></label></div>
+      <div class="paper">
+        <div class="mirror" id="mirror" aria-hidden="true"></div>
+        <textarea id="ed" spellcheck="false" placeholder="Start writing. The model suggests how it continues, in grey."></textarea>
+      </div>
+    </section>
+    <div id="canvasbar" hidden>
+      <span class="hint"><kbd>Tab</kbd> word <kbd>→</kbd> all <kbd>Esc</kbd> hide</span>
+      <span class="touch"><button id="bWord" class="btn" disabled>+ word</button><button id="bAll" class="btn" disabled>+ all</button></span>
+    </div>
     <div id="log"><div id="empty"></div></div>
     <form id="composer">
       <div id="attach"></div>

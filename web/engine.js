@@ -35,6 +35,36 @@ export class Engine {
     }
   }
 
+  // A copy that shares the sessions and (immutable) state tensors: feeding it leaves this engine unchanged.
+  fork() {
+    const e = Object.create(Engine.prototype);
+    Object.assign(e, { ort: this.ort, s: this.s, meta: this.meta, nLoops: this.nLoops, n: this.n, pastPos: this.pastPos });
+    e.st = Object.fromEntries(Object.entries(this.st).map(([k, v]) => [k, { ...v }]));
+    return e;
+  }
+
+  // Conv states only (small); together with the key/value cache cut to L tokens they restore the state at L.
+  convSnap() {
+    const out = {};
+    for (const [part, d] of Object.entries(this.st)) out[part] = Object.fromEntries(Object.entries(d).filter(([k]) => k.startsWith('past_c')));
+    return { n: this.n, conv: out };
+  }
+
+  // Roll back to an earlier length L (L <= n) given the convSnap taken at L.
+  restore(snap) {
+    const T = this.ort.Tensor, L = snap.n, P = L + 1;          // slot 0 is the empty slot (position -1)
+    this.pastPos = new T('int64', this.pastPos.data.slice(0, P), [P]);
+    for (const [part, d] of Object.entries(this.st)) {
+      for (const k of Object.keys(d)) {
+        if (k.startsWith('past_c')) { d[k] = snap.conv[part][k]; continue; }
+        const t = d[k], [, H, Pold, D] = t.dims, a = new Float32Array(H * P * D);
+        for (let h = 0; h < H; h++) a.set(t.data.subarray(h * Pold * D, h * Pold * D + P * D), h * P * D);
+        d[k] = new T('float32', a, [1, H, P, D]);
+      }
+    }
+    this.n = L;
+  }
+
   async _run(name, part, feeds) {
     const o = await this.s[name].run({ ...feeds, ...this.st[part] });
     const next = {};
@@ -156,9 +186,10 @@ export class Tok {
 }
 
 // ---------------------------------------------------------------- sampling
-export function sample(logits, { temperature = 0.7, topP = 0.9, topK = 0, repPenalty = 1.0, seen = null, banned = null }) {
+export function sample(logits, { temperature = 0.7, topP = 0.9, topK = 0, repPenalty = 1.0, seen = null, banned = null, allow = null }) {
   const V = logits.length, l = new Float32Array(logits);
   if (banned) for (const i of banned) l[i] = -Infinity;
+  if (allow) for (let i = 0; i < V; i++) if (!allow[i]) l[i] = -Infinity;
   if (repPenalty !== 1 && seen) for (const i of seen) l[i] = l[i] > 0 ? l[i] / repPenalty : l[i] * repPenalty;
   let best = 0; for (let i = 1; i < V; i++) if (l[i] > l[best]) best = i;
   if (temperature <= 0) return best;

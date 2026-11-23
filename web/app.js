@@ -13,11 +13,12 @@ const setBar = (f) => { $('bar').hidden = f == null; if (f != null) $('bar').fir
 // ---------------------------------------------------------------- settings
 const S = {};
 for (const [id, key, fmt] of [['loops', 'loops', (v) => v], ['temp', 'temperature', (v) => v], ['topp', 'topP', (v) => v],
-                              ['rep', 'repPenalty', (v) => v], ['max', 'maxNew', (v) => v]]) {
+                              ['rep', 'repPenalty', (v) => v], ['max', 'maxNew', (v) => v], ['len', 'len', (v) => v]]) {
   const el = $(id), out = $(id + 'v');
   const saved = store.get('loopmm.' + id); if (saved != null) el.value = saved;
   const upd = () => { S[key] = +el.value; out.textContent = fmt(el.value); store.set('loopmm.' + id, el.value); };
   el.addEventListener('input', upd); upd();
+  el.addEventListener('input', () => { if (isCanvas()) { CV.ghost = ''; renderCanvas(); schedule(250); } });
 }
 $('detail').value = store.get('loopmm.detail') || '576';
 $('detail').addEventListener('change', () => store.set('loopmm.detail', $('detail').value));
@@ -86,7 +87,9 @@ async function loadModel(m) {
   const sv = store.get('loopmm.thinking'); if (sv && modes.some((x) => x.id === sv)) $('thinking').value = sv;
   $('input').placeholder = m.mode === 'chat' ? 'Message loopmm' : 'Start a text; the base model continues it';
   renderEmpty();
+  setMode();
   setStatus(`Ready · ${m.label} · ${ort.env.wasm.numThreads} thread${ort.env.wasm.numThreads > 1 ? 's' : ''}`);
+  if (isCanvas()) { canvasReset(); schedule(0); }
   updateSend();
 }
 $('thinking').addEventListener('change', () => store.set('loopmm.thinking', $('thinking').value));
@@ -282,6 +285,7 @@ async function addImage(file) {
   const url = URL.createObjectURL(file);
   const bmp = await createImageBitmap(file);
   const im = { uid: ++uid, url, prep: preprocessImage(bmp, +$('detail').value, 32) };
+  if (isCanvas()) { CV.imgs.push(im); renderCanvasImgs(); CV.ghost = ''; renderCanvas(); schedule(0); return; }
   pending.push(im);
   renderAttach(); updateSend();
 }
@@ -316,8 +320,190 @@ $('composer').addEventListener('submit', (e) => {
 $('newchat').onclick = () => {
   if (busy) stopFlag = true;
   messages = []; $('log').innerHTML = '<div id="empty"></div>'; renderEmpty();
+  if (isCanvas()) { $('ed').value = ''; CV.imgs = []; renderCanvasImgs(); onCanvasInput(); }
   $('app').classList.remove('open');
 };
+
+
+// ---------------------------------------------------------------- canvas (base model): ghost-text continuation
+// One text area. The model's continuation shows in grey after the caret. Tab takes the next word, → takes all,
+// Esc hides it. Images sit before the text. The engine keeps the tokens it has read and only reads what changed:
+// typing at the end costs one or two tokens, an edit earlier rolls back to the nearest snapshot.
+const isCanvas = () => !!model && model.mode !== 'chat';
+const CV = { imgs: [], ghost: '', ghostFor: null, genId: 0, chain: Promise.resolve(), debounce: null,
+             keys: [], snaps: new Map(), logits: null, lastText: '', allowCache: new Map(), stats: null };
+const ed = $('ed'), mirror = $('mirror');
+const MAX_SNAPS = 120, CANVAS_MAX = 8192;
+
+function setMode() {
+  const c = isCanvas();
+  $('canvas').hidden = $('canvasbar').hidden = !c;
+  $('log').hidden = $('composer').hidden = c;
+  $('maxfield').hidden = c; $('lenfield').hidden = !c;
+  if (c) $('thinkfield').hidden = true;
+  $('newchat').textContent = c ? 'Clear' : 'New chat';
+}
+
+function canvasReset() {
+  engine.reset(S.loops);
+  CV.keys = []; CV.snaps = new Map([[0, engine.convSnap()]]); CV.logits = null;
+}
+
+function renderCanvasImgs() {
+  const box = $('cimgs');
+  box.querySelectorAll('.thumb').forEach((x) => x.remove());
+  CV.imgs.forEach((im, i) => {
+    const d = document.createElement('div'); d.className = 'thumb';
+    d.innerHTML = `<img src="${im.url}" alt=""><button type="button" aria-label="Remove">×</button>`;
+    d.querySelector('button').onclick = () => { CV.imgs.splice(i, 1); renderCanvasImgs(); CV.ghost = ''; renderCanvas(); schedule(0); };
+    box.insertBefore(d, box.lastElementChild);
+  });
+}
+
+const caretAtEnd = () => ed.selectionStart === ed.value.length && ed.selectionEnd === ed.value.length;
+function renderCanvas() {
+  const show = CV.ghost && CV.ghostFor === ed.value && caretAtEnd() && document.activeElement === ed;
+  mirror.textContent = ed.value;
+  if (show) { const sp = document.createElement('span'); sp.className = 'ghost'; sp.textContent = CV.ghost; mirror.appendChild(sp); }
+  mirror.appendChild(document.createTextNode('​'));
+  $('bWord').disabled = $('bAll').disabled = !show;
+}
+
+function schedule(delay = 140) {
+  clearTimeout(CV.debounce);
+  const id = ++CV.genId;
+  CV.debounce = setTimeout(() => { CV.chain = CV.chain.then(() => suggest(id)).catch((e) => { console.error(e); setStatus('Error: ' + e.message); }); }, delay);
+}
+// for tests: run one suggestion now and wait for it
+function suggestNow() { clearTimeout(CV.debounce); const id = ++CV.genId; CV.chain = CV.chain.then(() => suggest(id)); return CV.chain; }
+
+// feed F.ids[a:b] (never splitting an image), record a snapshot after each chunk
+async function canvasFeed(F, a, b, alive) {
+  let logits = null, imgId = 0;
+  while (a < b) {
+    let e = Math.min(b, a + CHUNK);
+    for (const sp of F.spans) if (sp.s < e && sp.e > e) e = sp.s > a ? sp.s : sp.e;
+    const img = new Array(e - a).fill(0), images = [];
+    for (const sp of F.spans) {
+      if (sp.s < a || sp.e > e) continue;
+      imgId++;
+      for (let k = sp.s + 1; k < sp.e; k++) img[k - a] = imgId;
+      const slot = [];
+      for (let r = 0; r < sp.p.gh; r++) for (let c = 0; c < sp.p.gw; c++) slot.push(sp.s + 1 + r * (sp.p.gw + 1) + c - a);
+      images.push({ pix: sp.p.pix, rc: sp.p.rc, slot });
+    }
+    logits = await engine.feed(F.ids.slice(a, e), img, images);
+    CV.keys.push(...F.keys.slice(a, e));
+    CV.snaps.set(e, engine.convSnap());
+    if (CV.snaps.size > MAX_SNAPS) { const ks = [...CV.snaps.keys()].filter((k) => k > 0).sort((x, y) => x - y); CV.snaps.delete(ks[0]); }
+    a = e;
+    if (!alive()) return null;
+  }
+  return logits;
+}
+
+async function suggest(id) {
+  const alive = () => id === CV.genId && isCanvas() && !!engine;
+  if (!alive()) return;
+  const text = ed.value;
+  if (!text.trim() && !CV.imgs.length) { CV.ghost = ''; renderCanvas(); return; }
+  const units = [{ ids: [1] }, ...CV.imgs.map((im) => ({ image: im })), { ids: tok.encode(text) }];
+  const F = flatten(units);
+  if (F.ids.length > CANVAS_MAX) { setStatus(`The text is too long (${F.ids.length} tokens; the limit is ${CANVAS_MAX})`); return; }
+  // token healing: re-generate the last text token, constrained to start with its bytes
+  const textStart = F.spans.length ? F.spans[F.spans.length - 1].e : 1;
+  let heal = '', last = null, C = F.ids.length;
+  if (F.ids.length - 1 >= textStart) { last = F.ids[F.ids.length - 1]; heal = tok.pieces[last] || ''; C -= 1; }
+  if (engine.nLoops !== S.loops) canvasReset();
+  let L = 0;
+  while (L < CV.keys.length && L < C && CV.keys[L] === F.keys[L]) L++;
+  if (L < CV.keys.length || (L === C && last == null && !CV.logits)) {       // roll back to a snapshot at or before L
+    let best = 0;
+    for (const k of CV.snaps.keys()) if (k <= L && k > best && !(k === C && last == null)) best = k;
+    engine.restore(CV.snaps.get(best));
+    CV.keys = CV.keys.slice(0, best); CV.logits = null;
+    for (const k of [...CV.snaps.keys()]) if (k > best) CV.snaps.delete(k);
+    L = best;
+  }
+  const t0 = performance.now(), nRead = C - L + (last == null ? 0 : 1);
+  if (L < C) { const lg = await canvasFeed(F, L, C, alive); if (!alive()) return; CV.logits = lg; }
+  const fk = engine.fork();
+  let logits = last == null ? CV.logits : await fk.feed([last]);
+  if (!alive()) return;
+  let allow = null;
+  if (heal) {
+    allow = CV.allowCache.get(heal);
+    if (!allow) {
+      allow = new Uint8Array(tok.pieces.length);
+      for (let i = 0; i < tok.pieces.length; i++) if (tok.pieces[i] != null && !tok.special[i] && tok.pieces[i].startsWith(heal)) allow[i] = 1;
+      CV.allowCache.set(heal, allow); if (CV.allowCache.size > 200) CV.allowCache.delete(CV.allowCache.keys().next().value);
+    }
+  }
+  const healText = last == null ? '' : tok.decode([last]);
+  const gen = [], seen = new Set();
+  const t1 = performance.now();
+  for (let s = 0; s < S.len; s++) {
+    const t = sample(logits, { temperature: S.temperature, topP: S.topP, repPenalty: S.repPenalty, seen, banned: IMG_TOKENS, allow: s === 0 ? allow : null });
+    if (t === 1 || t === 2) break;
+    gen.push(t); seen.add(t);
+    let g = tok.decode(gen);
+    if (!g.startsWith(healText)) break;
+    g = g.slice(healText.length);
+    const cut = g.indexOf('\n\n');
+    if (cut >= 0) g = g.slice(0, cut);
+    CV.ghost = g; CV.ghostFor = text; renderCanvas();
+    if (cut >= 0 || s === S.len - 1) break;
+    logits = await fk.feed([t]);
+    if (!alive()) return;
+  }
+  const genMs = performance.now() - t1;
+  CV.stats = { read: nRead, readMs: Math.round(t1 - t0), gen: gen.length, tokPerS: gen.length > 1 ? +(1000 * (gen.length - 1) / genMs).toFixed(1) : null, loops: S.loops };
+  setStatus(`Ready · ${model.label} · ${S.loops} loop${S.loops > 1 ? 's' : ''}` + (CV.stats.tokPerS ? ` · ${CV.stats.tokPerS} tok/s` : ''));
+}
+
+function onCanvasInput() {
+  const text = ed.value;
+  store.set('loopmm.canvas', text);
+  // typed exactly what the ghost said: keep the rest of it
+  if (CV.ghost && CV.ghostFor === CV.lastText && text.startsWith(CV.lastText) && text.length > CV.lastText.length &&
+      CV.ghost.startsWith(text.slice(CV.lastText.length))) {
+    CV.ghost = CV.ghost.slice(text.length - CV.lastText.length); CV.ghostFor = text; CV.lastText = text;
+    CV.genId++; clearTimeout(CV.debounce);
+    renderCanvas();
+    if (!CV.ghost.trim()) schedule(60);
+    return;
+  }
+  CV.lastText = text;
+  CV.ghost = ''; renderCanvas();
+  schedule();
+}
+
+function accept(all) {
+  if (!CV.ghost || CV.ghostFor !== ed.value || !caretAtEnd()) return false;
+  const m = all ? [CV.ghost] : CV.ghost.match(/^\s*[^\s]+/) || CV.ghost.match(/^\s+/);
+  const piece = m ? m[0] : CV.ghost;
+  ed.focus();
+  if (!document.execCommand('insertText', false, piece)) { ed.setRangeText(piece, ed.value.length, ed.value.length, 'end'); onCanvasInput(); }
+  return true;
+}
+
+ed.addEventListener('input', onCanvasInput);
+ed.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+    if (accept(false)) e.preventDefault();
+    else if (caretAtEnd()) e.preventDefault();          // keep focus in the canvas while a suggestion loads
+  } else if (e.key === 'ArrowRight' && !e.shiftKey && caretAtEnd()) {
+    if (accept(true)) e.preventDefault();
+  } else if (e.key === 'Escape') {
+    CV.ghost = ''; CV.genId++; renderCanvas();
+  }
+});
+for (const ev of ['click', 'keyup', 'focus', 'blur', 'select']) ed.addEventListener(ev, () => renderCanvas());
+document.addEventListener('selectionchange', () => { if (document.activeElement === ed) renderCanvas(); });
+$('bWord').addEventListener('mousedown', (e) => { e.preventDefault(); accept(false); });
+$('bAll').addEventListener('mousedown', (e) => { e.preventDefault(); accept(true); });
+$('cfile').addEventListener('change', async (e) => { for (const f of e.target.files) await addImage(f); e.target.value = ''; });
+{ const saved = store.get('loopmm.canvas'); ed.value = saved != null ? saved : 'The old lighthouse keeper climbed the stairs one last time, and'; CV.lastText = ed.value; renderCanvas(); }
 
 // ---------------------------------------------------------------- start
 (async () => {
@@ -334,6 +520,7 @@ $('newchat').onclick = () => {
     await loadLibs();
     await loadModel(models.find((m) => m.id === $('model').value));
     if (new URLSearchParams(location.search).has('smoke')) await smoke(models);
+    else if (isCanvas()) $('ed').focus();
   } catch (e) {
     console.error(e); setStatus(`Could not start: ${e.message || e}`);
     if (new URLSearchParams(location.search).has('smoke')) document.title = 'SMOKE:' + JSON.stringify({ ok: false, threads: window.ort?.env?.wasm?.numThreads, isolated: !!self.crossOriginIsolated, error: String(e && e.stack || e) });
@@ -348,12 +535,41 @@ async function testImage() {
   g.fillStyle = '#e53935'; g.beginPath(); g.arc(160, 120, 70, 0, 2 * Math.PI); g.fill();
   return new File([await new Promise((ok) => cv.toBlob(ok, 'image/png'))], 'test.png', { type: 'image/png' });
 }
+async function smokeCanvas(m) {
+  const r = { model: m.id, mode: 'canvas', ok: true };
+  $('newchat').onclick();
+  Object.assign(S, { temperature: 0, len: 16, loops: 3 });
+  const run = async (text) => { ed.value = text; CV.lastText = text; await suggestNow(); return { text, ghost: CV.ghost, stats: CV.stats }; };
+  r.text = await run('The capital of France is');
+  const w = (CV.ghost.match(/^\s*[^\s]+/) || [''])[0];
+  r.typed = await run('The capital of France is' + w);           // one accepted word: should read only a token or two
+  CV.imgs = [{ uid: ++uid, url: '', prep: preprocessImage(await createImageBitmap(await testImage()), 256, 32) }];
+  r.image = await run('A photo of');
+  CV.imgs = [];
+  S.loops = 1;
+  r.loops1 = await run('The capital of France is');
+  for (const k of ['text', 'typed', 'image', 'loops1']) if (!r[k].ghost) r.ok = false;
+  if (r.typed.stats.read > 4) r.ok = false;
+  S.loops = 3; await run('The old lighthouse keeper climbed the stairs one last time, and');
+  ed.focus(); ed.setSelectionRange(ed.value.length, ed.value.length); renderCanvas();
+  const key = (k) => ed.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+  const before = ed.value, g0 = CV.ghost, w0 = (g0.match(/^\s*[^\s]+/) || [''])[0];
+  key('Tab');
+  r.tab = { ok: ed.value === before + w0 && w0.length > 0, added: w0 };
+  const g1 = CV.ghost, b1 = ed.value;
+  key('ArrowRight');
+  r.arrow = { ok: g1.length > 0 && ed.value === b1 + g1, added: g1 };
+  if (!r.tab.ok || !r.arrow.ok) r.ok = false;
+  await suggestNow(); ed.focus(); ed.setSelectionRange(ed.value.length, ed.value.length); renderCanvas();
+  return r;
+}
 async function smoke(models) {
   const out = { ok: true, threads: ort.env.wasm.numThreads, isolated: !!self.crossOriginIsolated, results: [] };
   const saved = { ...S };
   try {
     for (const m of models) {
       if (m !== model) await loadModel(m);
+      if (m.mode !== 'chat') { out.results.push(await smokeCanvas(m)); if (!out.results.at(-1).ok) out.ok = false; continue; }
       $('newchat').onclick();
       Object.assign(S, { temperature: 0, maxNew: 24, loops: 3 });
       const turns = m.mode === 'chat' ? ['What is in this image?', 'What color is the circle?'] : ['A photo of', ' The'];

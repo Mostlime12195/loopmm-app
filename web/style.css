@@ -74,3 +74,32 @@ body.drag #composer .row { border-color: var(--accent); }
 .msg pre { background: var(--think); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; overflow-x: auto;
             white-space: pre; font-size: 13px; }
 .msg code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+
+/* canvas (base model) */
+#canvas { flex: 1; overflow-y: auto; padding: 22px 16px 12px; }
+#canvas > * { max-width: 760px; margin-left: auto; margin-right: auto; }
+#cimgs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+#cimgs .thumb { position: relative; }
+#cimgs img { height: 96px; border-radius: 8px; display: block; }
+#cimgs .thumb button { position: absolute; top: -6px; right: -6px; border: 0; border-radius: 50%; width: 20px; height: 20px;
+  background: var(--fg); color: var(--bg); cursor: pointer; font-size: 12px; line-height: 20px; padding: 0; }
+.addimg { font-size: 13px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.addimg:hover { color: var(--fg); border-color: var(--muted); }
+.paper { position: relative; }
+.mirror, #ed { font: 19px/1.7 "Iowan Old Style", Charter, "Palatino Linotype", Georgia, ui-serif, serif; padding: 0; margin: 0;
+  border: 0; letter-spacing: 0; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; tab-size: 4; }
+.mirror { color: transparent; min-height: 55vh; pointer-events: none; }
+.mirror .ghost { color: var(--muted); opacity: .75; }
+#ed { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; outline: none; overflow: hidden;
+  background: transparent; color: var(--fg); caret-color: var(--accent); }
+#ed::placeholder { color: var(--muted); }
+#canvasbar { display: flex; gap: 12px; align-items: center; justify-content: flex-end; padding: 8px 16px 14px;
+  font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); }
+#canvasbar .hint { display: flex; gap: 8px; align-items: center; }
+kbd { font: 11px ui-sans-serif, system-ui, sans-serif; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 4px; padding: 1px 5px; color: var(--fg); }
+#canvasbar .touch { display: none; gap: 6px; }
+#canvasbar .btn { padding: 4px 10px; font-size: 12.5px; }
+@media (hover: none) { #canvasbar .touch { display: flex; } #canvasbar .hint { display: none; } }
+body.drag #canvas .paper { outline: 1px dashed var(--accent); outline-offset: 6px; }
+@media (max-width: 760px) { .mirror, #ed { font-size: 17px; } }
