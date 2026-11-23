@@ -41,13 +41,11 @@
       ],
       "identity": "-",
       "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "artifactName": "loopmm-${version}-${arch}-mac.${ext}"
     },
     "dmg": {
       "artifactName": "loopmm-${version}-${arch}.dmg"
-    },
-    "zip": {
-      "artifactName": "loopmm-${version}-${arch}-mac.zip"
     }
   }
 }
