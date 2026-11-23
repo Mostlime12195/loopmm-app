@@ -1,6 +1,6 @@
 # loopmm for Mac
 
-A small Mac app for chatting with [loopmm](https://huggingface.co/MostLime/loopmm-chat), a 189M-parameter looped model that reads images and text. The model is inside the app, so it works offline. Your messages and images stay on your Mac.
+A small Mac app for trying [loopmm](https://huggingface.co/MostLime/loopmm-base), a 189M-parameter looped model that takes images and text as input. The model is inside the app, so it works offline. Your text and images stay on your Mac.
 
 ## Install
 
@@ -15,8 +15,7 @@ xattr -dr com.apple.quarantine /Applications/loopmm.app
 ## Use
 
 - Type a message, or add images with the + button, by pasting, or by dropping them on the window.
-- **Model**: the chat model, or the base model, which only continues text.
-- **Thinking**: whether the chat model writes its reasoning first. The reasoning shows in a box that you can open and close.
+- **Model**: for now only the base model, which continues the text that you write. It does not follow instructions yet. A post-trained chat version is pending; the app already has a chat mode (with a thinking box) for it.
 - **Loops**: how many times the model runs its 12 middle layers for each token. It was trained with 3. Fewer loops are faster.
 
 ## How it works
