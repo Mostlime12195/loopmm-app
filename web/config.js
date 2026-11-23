@@ -6,7 +6,7 @@ window.LOOPMM = {
   "id": "base",
   "label": "Base (pretrained only)",
   "repo": "MostLime/loopmm-base",
-  "rev": "de7d56b3820b30f61f4f6a9ded03513a6ade5f6d",
+  "rev": "f311b35c5a9d132862f67ca86b4cb70db71e98d0",
   "mode": "complete",
   "defaults": {
    "temperature": 0.7,
